@@ -1,12 +1,10 @@
-# setup-dune Cache Version Conflict PoC
+# setup-dune Cache Version Conflict Investigation
 
-This repository demonstrates a potential issue with `ocaml-dune/setup-dune` where cached packages from one dune version can cause failures when a different dune version is used.
+This repository was created to investigate a potential cache version conflict issue with `ocaml-dune/setup-dune`.
 
-## The Problem
+## Background
 
-The `setup-dune` action caches built packages to speed up subsequent CI runs. However, the cache key doesn't include the dune version. When the cache fallback mechanism finds packages from a different dune version, builds can fail.
-
-Example error:
+In the [ocaml.org](https://github.com/ocaml/ocaml.org) CI, we observed errors like:
 ```
 File "...dune-package", line 1, characters 11-15:
 1 | (lang dune 3.22)
@@ -15,28 +13,49 @@ Error: Version 3.22 of the dune language is not supported.
 Supported versions: ... 3.0 to 3.21
 ```
 
-## How to Reproduce
+## Findings
 
-1. **Run Step 1 workflow** ("Step 1: Populate Cache with Nightly")
-   - Uses `setup-dune@v1` with default (nightly) version
-   - Builds the project and caches artifacts
-   - Nightly is currently 3.22+
+### Cache Keys Include Dune Version
 
-2. **Run Step 2 workflow** ("Step 2: Trigger Bug with Older Version")
-   - Uses `setup-dune@v1` with `version: "3.21.0"`
-   - Attempts to build, but may restore cache from Step 1
-   - Expected: fails because 3.21.0 can't read `(lang dune 3.22)` packages
+The `setup-dune` action **does** include the dune version in cache keys:
+- Nightly builds use prefix: `dune-dev-Linux-X64-...`
+- Version 3.21.0 uses prefix: `dune-3.21.0-Linux-X64-...`
 
-## Root Cause
+This means caches are isolated between nightly and specific version builds.
 
-The cache key in `setup-dune` includes:
-- Cache prefix
-- OS/architecture
-- Hash of `dune-project`
-- Commit SHA
+### The Actual Bug Scenario
 
-But it does **not** include the dune version. The fallback mechanism can find caches from incompatible dune versions.
+The bug occurs when:
+1. **All nightly builds share the `dune-dev-` cache key prefix**
+2. If nightly advances from 3.21.x to 3.22.x between CI runs
+3. The newer nightly's `_build/` artifacts (with `(lang dune 3.22)`) are cached
+4. A subsequent run restores this cache but the nightly binary might behave differently
 
-## Suggested Fix
+This is **timing-dependent** and hard to reproduce in a controlled PoC.
 
-Include the dune version in the cache key to prevent cross-version cache pollution.
+### What Happened in ocaml.org
+
+The issue in ocaml.org was slightly different:
+1. `build_with_dev_preview.yml` used setup-dune with nightly (3.22+)
+2. setup-dune sets `DUNE_CACHE_ROOT` environment variable
+3. Our Makefile downloaded a specific dune version (3.21.0)
+4. Our dune inherited `DUNE_CACHE_ROOT` and found artifacts built by nightly 3.22
+
+The fix was to use `version: latest` (stable 3.21.0) in setup-dune to match our Makefile's dune version.
+
+## Recommendations for setup-dune
+
+1. **Include actual nightly version in cache key** (not just `dune-dev-`)
+   - Currently: `dune-dev-Linux-X64-...`
+   - Better: `dune-dev-3.22.0-Linux-X64-...` or include the git revision
+
+2. **Document the cache key format** so users understand isolation behavior
+
+3. **Consider making `version: latest` the default** now that dune pkg is more mature
+
+## Workflows in This Repo
+
+- `step1-nightly.yml`: Builds with nightly dune, shows cache key and package versions
+- `step2-older.yml`: Builds with dune 3.21.0, shows cache behavior
+
+These demonstrate that different version specifications result in different cache key prefixes.
