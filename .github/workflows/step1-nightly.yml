@@ -1,0 +1,28 @@
+name: "Step 1: Populate Cache with Nightly"
+
+# Run this first to populate the cache with nightly dune artifacts
+
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Dune (nightly)
+        uses: ocaml-dune/setup-dune@v1
+        # No version specified = nightly (currently 3.22+)
+
+      - name: Show dune version
+        run: dune --version
+
+      - name: Build with dune pkg
+        run: |
+          dune pkg lock
+          dune build
+
+      - name: Show built package versions
+        run: |
+          echo "Checking (lang dune ...) in built packages:"
+          find _build -name 'dune-package' -exec head -1 {} \; 2>/dev/null | sort -u || true

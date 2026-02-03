@@ -1,0 +1,32 @@
+name: "Step 2: Trigger Bug with Older Version"
+
+# Run this AFTER step1 to trigger the cache version conflict
+# Expected: fails with "Version 3.22 of the dune language is not supported"
+
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Dune (3.21.0 - older than nightly)
+        uses: ocaml-dune/setup-dune@v1
+        with:
+          version: "3.21.0"
+
+      - name: Show dune version
+        run: dune --version
+
+      - name: Build with dune pkg
+        run: |
+          dune pkg lock
+          dune build
+        # Expected to fail if cache contains packages from nightly 3.22+
+
+      - name: Show built package versions (if build succeeded)
+        if: success()
+        run: |
+          echo "Checking (lang dune ...) in built packages:"
+          find _build -name 'dune-package' -exec head -1 {} \; 2>/dev/null | sort -u || true
