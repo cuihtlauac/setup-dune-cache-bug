@@ -2,4 +2,4 @@
 
 (repository
  (name opam)
- (url https://github.com/ocaml/opam-repository))
+ (url git+https://github.com/ocaml/opam-repository))
